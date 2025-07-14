@@ -27,29 +27,48 @@ async function getWeather(city) {
   }
 }
 
-// Get weather by coordinates
+// Get weather by coordinates with fallback
 async function getWeatherByCoords(lat, lon) {
-  const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
-  const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
+  const reverseUrl = `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${apiKey}`;
 
   try {
-    const [weatherRes, forecastRes] = await Promise.all([
-      fetch(url),
-      fetch(forecastUrl)
-    ]);
+    const res = await fetch(reverseUrl);
+    if (!res.ok) throw new Error("Reverse geocoding failed");
 
-    if (!weatherRes.ok || !forecastRes.ok) {
-      throw new Error("Location weather fetch failed");
+    const data = await res.json();
+    const city = data[0]?.name;
+    const state = data[0]?.state;
+
+    let queryCity = city;
+    if (state) queryCity += `,${state}`;
+
+    try {
+      await getWeather(queryCity);
+      saveToRecentCities(city);
+    } catch {
+      // fallback using lat/lon
+      const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
+      const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
+
+      const [weatherRes, forecastRes] = await Promise.all([
+        fetch(url),
+        fetch(forecastUrl)
+      ]);
+
+      if (!weatherRes.ok || !forecastRes.ok) {
+        throw new Error("Weather fetch by coordinates failed");
+      }
+
+      const weatherData = await weatherRes.json();
+      const forecastData = await forecastRes.json();
+
+      displayWeather(weatherData);
+      displayForecast(forecastData);
+      saveToRecentCities(weatherData.name);
     }
-
-    const weatherData = await weatherRes.json();
-    const forecastData = await forecastRes.json();
-
-    displayWeather(weatherData);
-    displayForecast(forecastData);
   } catch (error) {
-    console.error("Error fetching location-based weather:", error.message);
-    document.getElementById("city-name").innerHTML = `<p class="text-red-500">Unable to fetch location weather.</p>`;
+    console.error("Location weather fetch failed:", error.message);
+    document.getElementById("city-name").innerHTML = `<p class="text-red-500">Unable to detect city from location.</p>`;
     document.getElementById("forecast").innerHTML = "";
   }
 }
